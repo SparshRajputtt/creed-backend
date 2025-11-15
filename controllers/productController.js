@@ -224,7 +224,7 @@ const createProduct = async (req, res) => {
       stock,
       lowStockThreshold,
       weight,
-      dimensions,
+      dimensions, 
       capacity,
       tags,
       features,

@@ -10,7 +10,6 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const EMAIL_SERVICE_URL = process.env.EMAIL_SERVICE_URL;
-
 /**
  * Create axios instance with default config
  */

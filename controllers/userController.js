@@ -399,7 +399,7 @@ const removeFromCart = async (req, res) => {
     const { itemId } = req.params;
 
     const user = await User.findById(req.user.id);
-    user.cart.id(itemId).remove();
+    user.cart.pull(itemId);
     await user.save();
 
     res.status(200).json({
