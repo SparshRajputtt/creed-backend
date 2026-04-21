@@ -217,7 +217,7 @@ const register = async (req, res) => {
 
 /**
  * @desc    Login user
- * @route   POST /api/auth/login
+ * @route   POST cd
  * @access  Public
  */
 const login = async (req, res) => {
