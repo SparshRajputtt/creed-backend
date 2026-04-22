@@ -1,7 +1,9 @@
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const morgan = require('morgan');
+const chatRoutes = require('./routes/chatRoutes.js');
 const dotenv = require('dotenv');
 
 const path = require('path');
@@ -20,6 +22,7 @@ const app = express();
 
 // Security middleware
 app.use(helmet());
+
 
 // Rate limiting
 const limiter = rateLimit({
@@ -58,6 +61,9 @@ app.use('/uploads', (req, res, next) => {
   next();
 });
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+//Chatbot routes
+app.use('/api/chat', chatRoutes);
 
 // API routes
 app.use('/api', routes);
