@@ -224,7 +224,7 @@ const createProduct = async (req, res) => {
       stock,
       lowStockThreshold,
       weight,
-      dimensions, 
+      dimensions,
       capacity,
       tags,
       features,
@@ -301,6 +301,10 @@ const createProduct = async (req, res) => {
       gst,
       taxClass,
       vendor: req.user.id,
+    });
+
+    await Category.findByIdAndUpdate(category, {
+      $inc: { productCount: 1 }
     });
 
     await product.populate('category', 'name slug');
