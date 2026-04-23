@@ -30,6 +30,12 @@ const generateToken = (id) => {
   });
 };
 
+const generateRefreshToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_REFRESH_SECRET, {
+    expiresIn: process.env.JWT_REFRESH_EXPIRE || '30d',
+  });
+};
+
 /**
  * @desc    Send OTP for registration
  * @route   POST /api/auth/send-otp
@@ -192,11 +198,13 @@ const register = async (req, res) => {
 
     // Generate JWT token
     const token = generateToken(user._id);
+    const refreshToken = generateRefreshToken(user._id);
 
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
       token,
+      refreshToken,
       user: {
         id: user._id,
         firstName: user.firstName,
@@ -256,11 +264,13 @@ const login = async (req, res) => {
 
     // Generate JWT token
     const token = generateToken(user._id);
+    const refreshToken = generateRefreshToken(user._id);
 
     res.status(200).json({
       success: true,
       message: 'Login successful',
       token,
+      refreshToken,
       user: {
         id: user._id,
         firstName: user.firstName,
