@@ -301,6 +301,23 @@ const logout = async (req, res) => {
 };
 
 /**
+ * @desc    Get current authenticated user
+ * @route   GET /api/auth/me
+ * @access  Private
+ */
+const getMe = async (req, res) => {
+  try {
+    res.status(200).json(req.user);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching current user',
+      error: error.message,
+    });
+  }
+};
+
+/**
  * @desc    Forgot password
  * @route   POST /api/auth/forgot-password
  * @access  Public
@@ -652,6 +669,7 @@ module.exports = {
   register,
   login,
   logout,
+  getMe,
   forgotPassword,
   resetPassword,
   verifyEmail,

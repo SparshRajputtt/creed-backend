@@ -5,6 +5,7 @@ const {
   register,
   login,
   logout,
+  getMe,
   forgotPassword,
   resetPassword,
   verifyEmail,
@@ -45,6 +46,13 @@ router.post('/login', validateUserLogin, login);
  * @access  Private
  */
 router.post('/logout', protect, logout);
+
+/**
+ * @route   GET /api/auth/me
+ * @desc    Get current authenticated user
+ * @access  Private
+ */
+router.get('/me', protect, getMe);
 
 /**
  * @route   POST /api/auth/forgot-password
