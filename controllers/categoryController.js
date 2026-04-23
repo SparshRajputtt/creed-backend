@@ -407,42 +407,59 @@ const updateCategory = async (req, res) => {
       });
     }
 
-    // Handle image upload
+    // ============================
+    // IMAGE HANDLING (LOCAL UPLOAD)
+    // ============================
     if (req.file) {
-      // Delete old image from cloudinary
+      // OLD CLOUDINARY (disabled)
       // if (category.image && category.image.public_id) {
       //   await cloudinary.uploader.destroy(category.image.public_id);
       // }
 
-      // Upload new image
       // const result = await cloudinary.uploader.upload(req.file.path, {
       //   folder: 'categories',
       //   quality: 'auto',
       //   fetch_format: 'auto',
       // });
 
+      // CURRENT (LOCAL STORAGE)
       req.body.image = {
-        public_id: result.public_id,
-        url: result.secure_url,
+        url: `/uploads/${req.file.filename}`,
         alt: req.body.name || category.name,
       };
     }
 
-    // Update slug if name changed
+    // ============================
+    // SLUG UPDATE
+    // ============================
     if (req.body.name && req.body.name !== category.name) {
       req.body.slug = generateSlug(req.body.name);
     }
 
-    // Parse arrays
+    // ============================
+    // META KEYWORDS PARSE
+    // ============================
     if (req.body.metaKeywords && typeof req.body.metaKeywords === 'string') {
       req.body.metaKeywords = req.body.metaKeywords
         .split(',')
         .map((keyword) => keyword.trim());
     }
+
+    // ============================
+    // ATTRIBUTES PARSE (SAFE FIX)
+    // ============================
     if (req.body.attributes && typeof req.body.attributes === 'string') {
-      req.body.attributes = JSON.parse(req.body.attributes);
+      try {
+        req.body.attributes = JSON.parse(req.body.attributes);
+      } catch (err) {
+        console.error('Invalid attributes:', req.body.attributes);
+        req.body.attributes = [];
+      }
     }
 
+    // ============================
+    // UPDATE CATEGORY
+    // ============================
     category = await Category.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true,
@@ -453,7 +470,10 @@ const updateCategory = async (req, res) => {
       message: 'Category updated successfully',
       data: category,
     });
+
   } catch (error) {
+    console.error('UPDATE CATEGORY ERROR:', error); // 🔥 important for debugging
+
     res.status(500).json({
       success: false,
       message: 'Error updating category',

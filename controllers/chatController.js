@@ -22,15 +22,15 @@ const buildSystemPrompt = ({ products, categories, coupons }) => {
 
   const couponList = coupons.length
     ? coupons.map((c) => {
-        const discountText = c.type === 'percentage' ? `${c.value}% off` : `₹${c.value} off`;
-        const minOrder = c.minimumOrderAmount ? ` (min order ₹${c.minimumOrderAmount})` : '';
-        const maxDiscount = c.maximumDiscountAmount ? ` (max discount ₹${c.maximumDiscountAmount})` : '';
-        const firstTime = c.firstTimeUserOnly ? ' | First-time users only' : '';
-        const expiry = c.validUntil
-          ? ` | Valid until ${new Date(c.validUntil).toLocaleDateString('en-IN')}`
-          : '';
-        return `- Code: ${c.code} | ${discountText}${minOrder}${maxDiscount}${firstTime}${expiry}`;
-      }).join('\n')
+      const discountText = c.type === 'percentage' ? `${c.value}% off` : `₹${c.value} off`;
+      const minOrder = c.minimumOrderAmount ? ` (min order ₹${c.minimumOrderAmount})` : '';
+      const maxDiscount = c.maximumDiscountAmount ? ` (max discount ₹${c.maximumDiscountAmount})` : '';
+      const firstTime = c.firstTimeUserOnly ? ' | First-time users only' : '';
+      const expiry = c.validUntil
+        ? ` | Valid until ${new Date(c.validUntil).toLocaleDateString('en-IN')}`
+        : '';
+      return `- Code: ${c.code} | ${discountText}${minOrder}${maxDiscount}${firstTime}${expiry}`;
+    }).join('\n')
     : 'No active coupons at the moment.';
 
   return `You are Creed Assistant, a smart shopping assistant for Creed, a premium e-commerce store.
@@ -80,7 +80,9 @@ ${couponList}
 - Never show raw database IDs to the user
 - If user asks about orders but is not logged in, tell them to please log in first to view their orders
 
-CRITICAL: ONLY respond with a valid JSON object. Never add any text, explanation, or markdown outside the JSON.`;
+CRITICAL: You MUST ALWAYS respond with ONLY a valid JSON object starting with { and ending with }. 
+If you include ANY text outside the JSON, the system will break. No exceptions.
+Product IDs must ONLY appear inside the products array — NEVER in the message text.`;
 };
 
 const parseAIResponse = (rawReply, products) => {
@@ -101,7 +103,12 @@ const parseAIResponse = (rawReply, products) => {
 
     return { message, matchedProducts };
   } catch {
-    return { message: rawReply, matchedProducts: [] };
+    // Strip any ID:xxxx patterns from plain text fallback
+    const cleaned = rawReply
+      .replace(/ID:\s*[a-f0-9]{24}/gi, '')  // remove ID:hexstring
+      .replace(/\(([^)]+)\)\s*\n/g, '\n')   // remove leftover (Name) fragments
+      .trim();
+    return { message: cleaned, matchedProducts: [] };
   }
 };
 
