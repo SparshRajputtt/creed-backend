@@ -1,26 +1,6 @@
 const OpenAI = require('openai');
 const Order = require('../models/Order');
 
-const FREE_MODELS = [
-  'meta-llama/llama-3.3-70b-instruct:free',
-  'nousresearch/hermes-3-405b-instruct:free',
-  'google/gemma-4-31b-it:free',
-  'google/gemma-4-26b-a4b-it:free',
-  'google/gemma-3-27b-it:free',
-  'meta-llama/llama-3.2-3b-instruct:free',
-  'google/gemma-3-12b-it:free',
-  'google/gemma-3-4b-it:free',
-  'google/gemma-3n-e4b-it:free',
-  'google/gemma-3n-e2b-it:free',
-];
-
-const SMALL_CONTEXT_MODELS = [
-  'google/gemma-3-12b-it:free',
-  'google/gemma-3-4b-it:free',
-  'google/gemma-3n-e4b-it:free',
-  'google/gemma-3n-e2b-it:free',
-];
-
 const buildSystemPrompt = ({ products, categories, coupons }) => {
   const productList = products
     .map((p) => {
@@ -95,54 +75,16 @@ ${couponList}
 - Payment: Credit/Debit Card, UPI, Net Banking, COD, Razorpay
 - Support: Contact Us page
 
+## ORDER REPLY RULES:
+- For order status, format reply clearly with bullet points showing: Order number, Status, Items, Tracking number if available
+- Never show raw database IDs to the user
+- If user asks about orders but is not logged in, tell them to please log in first to view their orders
+
 CRITICAL: ONLY respond with a valid JSON object. Never add any text, explanation, or markdown outside the JSON.`;
-};
-
-const callAI = async (messages, finalSystemPrompt) => {
-  const promptLength = finalSystemPrompt.length;
-  const modelsToTry = promptLength > 8000
-    ? FREE_MODELS.filter(m => !SMALL_CONTEXT_MODELS.includes(m))
-    : FREE_MODELS;
-
-  let reply = null;
-  let lastError = null;
-
-  for (const model of modelsToTry) {
-    try {
-      const client = new OpenAI({
-        baseURL: 'https://openrouter.ai/api/v1',
-        apiKey: process.env.OPENROUTER_API_KEY,
-      });
-
-      console.log(`Trying model: ${model}`);
-
-      const completion = await client.chat.completions.create({
-        model,
-        messages: [
-          { role: 'system', content: finalSystemPrompt },
-          ...messages,
-        ],
-        max_tokens: 800,
-        temperature: 0.7,
-      });
-
-      reply = completion.choices[0].message.content;
-      console.log(`✅ Success with model: ${model}`);
-      break;
-
-    } catch (err) {
-      console.log(`❌ Model ${model} failed (${err.status}), trying next...`);
-      lastError = err;
-      if (err.status !== 429 && err.status !== 404 && err.status !== 400) break;
-    }
-  }
-
-  return { reply, lastError };
 };
 
 const parseAIResponse = (rawReply, products) => {
   try {
-    // Strip markdown code fences if present
     const cleaned = rawReply
       .replace(/```json/gi, '')
       .replace(/```/g, '')
@@ -152,7 +94,6 @@ const parseAIResponse = (rawReply, products) => {
     const message = parsed.message || rawReply;
     const productIds = parsed.products || [];
 
-    // Match product IDs to actual product objects from context
     const matchedProducts = productIds
       .map(id => products.find(p => p._id?.toString() === id?.toString()))
       .filter(Boolean)
@@ -160,7 +101,6 @@ const parseAIResponse = (rawReply, products) => {
 
     return { message, matchedProducts };
   } catch {
-    // If JSON parsing fails, return plain message with no products
     return { message: rawReply, matchedProducts: [] };
   }
 };
@@ -215,14 +155,23 @@ exports.handleChat = async (req, res) => {
 
     const finalSystemPrompt = systemPrompt + orderContext;
 
-    const { reply: rawReply, lastError } = await callAI(messages, finalSystemPrompt);
+    // Use openrouter/auto — OpenRouter picks the best available free model automatically
+    const client = new OpenAI({
+      baseURL: 'https://openrouter.ai/api/v1',
+      apiKey: process.env.OPENROUTER_API_KEY,
+    });
 
-    if (!rawReply) {
-      const msg = lastError?.status === 429
-        ? 'All AI models are busy right now. Please try again in a minute!'
-        : 'Failed to get AI response';
-      return res.status(500).json({ error: msg });
-    }
+    const completion = await client.chat.completions.create({
+      model: 'openrouter/auto',
+      messages: [
+        { role: 'system', content: finalSystemPrompt },
+        ...messages,
+      ],
+      max_tokens: 800,
+      temperature: 0.7,
+    });
+
+    const rawReply = completion.choices[0].message.content;
 
     // Parse AI response — extract message text + matched product objects
     const { message, matchedProducts } = parseAIResponse(rawReply, context.products);
