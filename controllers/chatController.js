@@ -60,6 +60,43 @@ When user asks about USE CASE or FEATURES (not exact product names), match intel
 - Always prefer IN STOCK products over out of stock
 - Always prefer higher rated products
 
+-- "featured products" / "featured" / "show featured" →
+
+  Featured products are explicitly marked with the text: ⭐ Featured
+
+  Detection rule:
+  - Carefully scan each product line
+  - A product is featured ONLY if the exact text "⭐ Featured" appears at the end of that line
+  - Do NOT miss this marker — it is the ONLY source of truth
+
+  If AT LEAST ONE product contains "⭐ Featured":
+  - Return ONLY those featured products (max 4)
+
+  If NO product contains "⭐ Featured":
+  - Respond with:
+    "We don't have any featured products at the moment.
+    But here are some of our popular products you might like!"
+  - Then return fallback products
+
+  STRICT RULE:
+  - If even ONE "⭐ Featured" product exists → DO NOT trigger fallback
+  - NEVER ignore a product that contains "⭐ Featured"
+
+  - When returning multiple products (especially fallback/popular suggestions):
+  ENSURE category diversity.
+
+  Rules for diversity:
+  - Do NOT return multiple products from the same category if other categories are available
+  - Prefer selecting products from DIFFERENT categories (e.g., bottle, tiffin, kids, etc.)
+  - Only return multiple products from same category IF no other categories are available
+
+  Priority order:
+  1. In Stock
+  2. Higher Rated
+  3. Different Categories (VERY IMPORTANT)
+
+  If diversity is ignored → response is incorrect
+
 ## CURRENT PRODUCT CATALOG:
 ${productList}
 
@@ -127,6 +164,7 @@ exports.handleChat = async (req, res) => {
     const systemPrompt = buildSystemPrompt(context);
 
     // Fetch user orders if asking about them
+    // Fetch user orders if asking about them
     let orderContext = '';
     const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || '';
     const isAskingAboutOrder =
@@ -136,17 +174,25 @@ exports.handleChat = async (req, res) => {
       lastMessage.includes('shipped') ||
       lastMessage.includes('status');
 
+    const isAskingRecent =
+      lastMessage.includes('recent') ||
+      lastMessage.includes('latest') ||
+      lastMessage.includes('last order') ||
+      lastMessage.includes('my order');
+
+    const orderLimit = isAskingRecent ? 1 : 5;
+
     if (userId && isAskingAboutOrder) {
       try {
         const recentOrders = await Order.find({ user: userId })
           .select('orderNumber status pricing.total items createdAt shipping.trackingNumber')
           .sort({ createdAt: -1 })
-          .limit(5)
+          .limit(orderLimit)
           .lean();
 
         if (recentOrders.length > 0) {
           orderContext =
-            "\n\n## THIS CUSTOMER'S RECENT ORDERS:\n" +
+            `\n\n## THIS CUSTOMER'S ${isAskingRecent ? 'MOST RECENT ORDER' : 'RECENT ORDERS'}:\n` +
             recentOrders.map((o) => {
               const itemNames = o.items?.map((i) => i.name).join(', ') || 'items';
               const tracking = o.shipping?.trackingNumber
@@ -158,6 +204,10 @@ exports.handleChat = async (req, res) => {
       } catch (err) {
         console.error('Failed to fetch user orders for chat:', err);
       }
+    } else if (isAskingAboutOrder) {
+      orderContext = '\n\n## USER IS ASKING ABOUT THEIR ORDERS BUT IS NOT LOGGED IN.';
+    } else {
+      orderContext = '';
     }
 
     const finalSystemPrompt = systemPrompt + orderContext;

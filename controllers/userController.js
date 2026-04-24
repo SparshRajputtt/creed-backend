@@ -593,6 +593,66 @@ const getUserOrder = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Request order return
+ * @route   POST /api/users/orders/:orderId/return
+ * @access  Private
+ */
+const requestOrderReturn = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+      });
+    }
+
+    if (order.user.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to request return for this order',
+      });
+    }
+
+    if (order.status !== "delivered") {
+      return res.status(400).json({
+        success: false,
+        message: "Only delivered orders can be returned",
+      });
+    }
+
+    if (order.return && order.return.status === "requested") {
+      return res.status(400).json({
+        success: false,
+        message: "Return already requested",
+      });
+    }
+
+    order.return = {
+      status: 'requested',
+      requestedAt: new Date(),
+    };
+
+    await order.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Return request submitted successfully',
+      order,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error requesting order return',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -611,4 +671,5 @@ module.exports = {
   removeFromWishlist,
   getUserOrders,
   getUserOrder,
+  requestOrderReturn,
 };

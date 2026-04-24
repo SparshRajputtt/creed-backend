@@ -6,7 +6,7 @@ exports.getChatContext = async (req, res) => {
   try {
     const [products, categories, coupons] = await Promise.all([
       Product.find({ status: 'active' })
-        .select('name price comparePrice shortDescription description category brand tags features ratings stock isFeatured slug')
+        .select('name price comparePrice shortDescription description category brand tags features ratings stock isFeatured slug images')
         .populate('category', 'name slug')
         .limit(150)
         .lean(),

@@ -18,6 +18,7 @@ const {
   removeFromWishlist,
   getUserOrders,
   getUserOrder,
+  requestOrderReturn,
 } = require("../controllers/userController");
 const { protect } = require("../middleware/auth");
 const { validateObjectId } = require("../middleware/validation");
@@ -159,6 +160,18 @@ router.get(
   protect,
   validateObjectId("orderId"),
   getUserOrder
+);
+
+/**
+ * @route   POST /api/users/orders/:orderId/return
+ * @desc    Request order return
+ * @access  Private
+ */
+router.post(
+  "/orders/:orderId/return",
+  protect,
+  validateObjectId("orderId"),
+  requestOrderReturn
 );
 
 module.exports = router;
