@@ -20,7 +20,8 @@ const buildSystemPrompt = ({ products, categories, coupons }) => {
     .map((c) => `- ${c.name}${c.description ? `: ${c.description}` : ''}`)
     .join('\n');
 
-  const couponList = coupons.length
+  // FIX 5: guard against undefined/null coupons
+  const couponList = coupons?.length
     ? coupons.map((c) => {
       const discountText = c.type === 'percentage' ? `${c.value}% off` : `₹${c.value} off`;
       const minOrder = c.minimumOrderAmount ? ` (min order ₹${c.minimumOrderAmount})` : '';
@@ -122,6 +123,17 @@ If you include ANY text outside the JSON, the system will break. No exceptions.
 Product IDs must ONLY appear inside the products array — NEVER in the message text.`;
 };
 
+// FIX 1 & 2: return aiIntendedProducts flag so handleChat knows
+// whether the empty products array was intentional or a broken response.
+//
+//   aiIntendedProducts = true  → AI deliberately sent products: []
+//                                (greeting / order / coupon / "we don't carry this")
+//                                → trust the AI message, skip fallback
+//
+//   aiIntendedProducts = false → AI sent IDs but none matched the catalog,
+//                                OR JSON parse failed entirely
+//                                → eligible for fallback
+//
 const parseAIResponse = (rawReply, products) => {
   try {
     const cleaned = rawReply
@@ -133,19 +145,22 @@ const parseAIResponse = (rawReply, products) => {
     const message = parsed.message || rawReply;
     const productIds = parsed.products || [];
 
+    const aiIntendedProducts = productIds.length === 0;
+
     const matchedProducts = productIds
-      .map(id => products.find(p => p._id?.toString() === id?.toString()))
+      .map((id) => products.find((p) => p._id?.toString() === id?.toString()))
       .filter(Boolean)
       .slice(0, 4);
 
-    return { message, matchedProducts };
+    return { message, matchedProducts, aiIntendedProducts };
   } catch {
-    // Strip any ID:xxxx patterns from plain text fallback
+    // JSON parse failed — strip raw IDs so they don't leak into the UI
     const cleaned = rawReply
-      .replace(/ID:\s*[a-f0-9]{24}/gi, '')  // remove ID:hexstring
-      .replace(/\(([^)]+)\)\s*\n/g, '\n')   // remove leftover (Name) fragments
+      .replace(/ID:\s*[a-f0-9]{24}/gi, '')
+      .replace(/\(([^)]+)\)\s*\n/g, '\n')
       .trim();
-    return { message: cleaned, matchedProducts: [] };
+    // Treat as broken response → fallback eligible
+    return { message: cleaned, matchedProducts: [], aiIntendedProducts: false };
   }
 };
 
@@ -161,10 +176,12 @@ exports.handleChat = async (req, res) => {
       return res.status(400).json({ error: 'Context is required' });
     }
 
+    // FIX 6: guard against missing products array in context
+    const contextProducts = context.products || [];
+
     const systemPrompt = buildSystemPrompt(context);
 
-    // Fetch user orders if asking about them
-    // Fetch user orders if asking about them
+    // Fetch user orders if message is order-related
     let orderContext = '';
     const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || '';
     const isAskingAboutOrder =
@@ -212,7 +229,6 @@ exports.handleChat = async (req, res) => {
 
     const finalSystemPrompt = systemPrompt + orderContext;
 
-    // Use openrouter/auto — OpenRouter picks the best available free model automatically
     const client = new OpenAI({
       baseURL: 'https://openrouter.ai/api/v1',
       apiKey: process.env.OPENROUTER_API_KEY,
@@ -230,9 +246,44 @@ exports.handleChat = async (req, res) => {
 
     const rawReply = completion.choices[0].message.content;
 
-    // Parse AI response — extract message text + matched product objects
-    const { message, matchedProducts } = parseAIResponse(rawReply, context.products);
+    // Parse AI response — get message text, matched products, and intent flag
+    const { message, matchedProducts, aiIntendedProducts } = parseAIResponse(rawReply, contextProducts);
+    
+    // ─── FALLBACK LOGIC ───────────────────────────────────────────────────────
+    //
+    // Trigger ONLY when AI tried to return IDs but none matched the catalog.
+    // Never trigger when AI intentionally returned products: [] —
+    // that means it already handled the response correctly (greeting, order
+    // query, coupon query, or honest "we don't carry this" reply).
+    //
+    if (!aiIntendedProducts && matchedProducts.length === 0) {
 
+      // FIX 4: spread into a new array before sorting to avoid mutating context.products
+      const fallbackProducts = [...contextProducts]
+        .filter((p) => p.stock > 0)
+        .sort((a, b) => {
+          const ratingDiff = (b.ratings?.average || 0) - (a.ratings?.average || 0);
+          if (ratingDiff !== 0) return ratingDiff;
+          return new Date(b.createdAt) - new Date(a.createdAt);
+        })
+        .slice(0, 4);
+
+      if (fallbackProducts.length > 0) {
+        return res.json({
+          reply: "We don't carry that specific type yet, but here are some of our popular products you might like.",
+          products: fallbackProducts,
+        });
+      }
+
+      // No in-stock products in the catalog at all
+      return res.json({
+        reply: message || "We don't have any products available right now. Please check back soon!",
+        products: [],
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Normal path — return whatever the AI decided (with or without products)
     res.json({ reply: message, products: matchedProducts });
 
   } catch (error) {
