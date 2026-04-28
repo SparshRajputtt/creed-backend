@@ -1,6 +1,8 @@
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
+const axios = require('axios');
 const Order = require('../models/Order');
+const Product = require('../models/Product');
 require('dotenv').config();
 
 // Initialize Razorpay
@@ -8,6 +10,41 @@ const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
+
+/**
+ * @desc    Helper function to send order confirmation email
+ * @param   {Object} order - The order document with populated user and items
+ */
+const sendOrderConfirmationEmail = async (order) => {
+  try {
+    const orderData = {
+      customerName: `${order.user.firstName} ${order.user.lastName}`,
+      orderNumber: order.orderNumber,
+      orderDate: order.createdAt.toLocaleDateString(),
+      items: order.items.map(item => ({
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+      })),
+      total: order.pricing.total.toFixed(2),
+    };
+
+    await axios.post(
+      `${process.env.EMAIL_SERVICE_URL}/send-order-confirmation`,
+      {
+        email: order.user.email,
+        orderData: orderData,
+      }
+    );
+
+    console.log(
+      `Order confirmation email sent successfully to: ${order.user.email}`
+    );
+  } catch (emailError) {
+    console.error('Failed to send order confirmation email:', emailError);
+    // Don't fail the payment verification if email fails - log error only
+  }
+};
 
 /**
  * @desc    Create Razorpay order
@@ -137,6 +174,12 @@ const verifyRazorpayPayment = async (req, res) => {
 
     await order.save();
 
+    // Populate user data for email
+    await order.populate('user', 'firstName lastName email');
+
+    // Send order confirmation email after successful payment verification
+    await sendOrderConfirmationEmail(order);
+
     res.status(200).json({
       success: true,
       message: 'Payment verified successfully',
@@ -172,6 +215,19 @@ const handlePaymentFailure = async (req, res) => {
       });
     }
 
+    // Guard: Only restore stock if payment hasn't already failed
+    // This prevents duplicate stock restoration if this endpoint is called multiple times
+    if (order.payment.status !== 'failed') {
+      for (const item of order.items) {
+        await Product.findByIdAndUpdate(item.product, {
+          $inc: {
+            stock: item.quantity,
+            soldCount: -item.quantity,
+          },
+        });
+      }
+    }
+
     order.payment.status = 'failed';
     order.addStatusHistory(
       'cancelled',
@@ -183,7 +239,7 @@ const handlePaymentFailure = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Payment failure recorded',
+      message: 'Payment failure recorded and inventory restored',
     });
   } catch (error) {
     res.status(500).json({
@@ -224,6 +280,12 @@ const processCODOrder = async (req, res) => {
     order.addStatusHistory('confirmed', 'COD order confirmed', req.user.id);
 
     await order.save();
+
+    // Populate user data for email
+    await order.populate('user', 'firstName lastName email');
+
+    // Send order confirmation email for COD orders
+    await sendOrderConfirmationEmail(order);
 
     res.status(200).json({
       success: true,

@@ -127,14 +127,16 @@ const createOrder = async (req, res) => {
       };
     }
 
-    // Fixed shipping cost
-    const shipping = 59;
+    // Apply free shipping when subtotal >= 500 (matches frontend logic)
+    const shipping = subtotal >= 500 ? 0 : 59;
 
-    // Use the calculated total tax instead of a single product's GST
-    const tax = totalTax;
+    // Note: Tax is not added to order total as frontend does not calculate or display tax
+    // GST rates are stored per item for reference/future use but not included in final total
+    // This aligns the backend total with the frontend displayed total
+    const tax = 0;
 
-    // Calculate total
-    const total = subtotal - discount + shipping + tax;
+    // Calculate total (matches frontend calculation)
+    const total = subtotal - discount + shipping;
 
     // Generate order number
     const orderNumber = generateOrderNumber();
@@ -205,31 +207,9 @@ const createOrder = async (req, res) => {
     // Add order to user's orders
     await User.findByIdAndUpdate(req.user.id, { $push: { orders: order._id } });
 
-    // Send order confirmation email using external API
-    try {
-      const orderData = {
-        customerName: `${req.user.firstName} ${req.user.lastName}`,
-        orderNumber: order.orderNumber,
-        orderDate: order.createdAt.toLocaleDateString(),
-        items: orderItems,
-        total: total.toFixed(2),
-      };
-
-      const response = await axios.post(
-        `${process.env.EMAIL_SERVICE_URL}/send-order-confirmation`,
-        {
-          email: req.user.email,
-          orderData: orderData,
-        }
-      );
-
-      console.log(
-        `Order confirmation email sent successfully to: ${req.user.email}`
-      );
-    } catch (emailError) {
-      console.error('Failed to send order confirmation email:', emailError);
-      // Don't fail the order creation if email fails
-    }
+    // Note: Order confirmation email will be sent after successful payment verification
+    // For Razorpay: sent after verifyRazorpayPayment
+    // For COD: sent after processCODOrder
 
     await order.populate('items.product', 'name images');
 
@@ -535,6 +515,19 @@ const cancelOrder = async (req, res) => {
       });
     }
 
+    // Guard: Only restore stock if it hasn't already been restored by payment failure handler
+    // This prevents duplicate stock restoration if payment already failed
+    if (order.payment.status !== 'failed') {
+      for (const item of order.items) {
+        await Product.findByIdAndUpdate(item.product, {
+          $inc: {
+            stock: item.quantity,
+            soldCount: -item.quantity,
+          },
+        });
+      }
+    }
+
     order.addStatusHistory('cancelled', reason, req.user.id);
     order.cancellation = {
       reason,
@@ -542,16 +535,7 @@ const cancelOrder = async (req, res) => {
       cancelledBy: req.user.id,
       refundStatus: 'pending',
     };
-
-    // Restore product stock
-    for (const item of order.items) {
-      await Product.findByIdAndUpdate(item.product, {
-        $inc: {
-          stock: item.quantity,
-          soldCount: -item.quantity,
-        },
-      });
-    }
+    order.status = 'cancelled';
 
     await order.save();
 
