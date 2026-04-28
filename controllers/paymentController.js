@@ -16,7 +16,7 @@ const razorpay = new Razorpay({
  */
 const createRazorpayOrder = async (req, res) => {
   try {
-    const { amount, currency = 'INR', orderId } = req.body;
+    const { currency = 'INR', orderId } = req.body;
 
     // Validate order exists and belongs to user
     const order = await Order.findById(orderId);
@@ -34,9 +34,18 @@ const createRazorpayOrder = async (req, res) => {
       });
     }
 
-    // Create Razorpay order
+    // Use server-side authoritative amount from the order (ignore client-sent amount)
+    const amountToUse = Number(order.pricing && order.pricing.total ? order.pricing.total : 0);
+    if (!amountToUse || amountToUse <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order amount',
+      });
+    }
+
+    // Create Razorpay order using backend-calculated total (converted to paise)
     const razorpayOrder = await razorpay.orders.create({
-      amount: Math.round(amount * 100), // Convert to paise
+      amount: Math.round(amountToUse * 100), // Convert to paise
       currency,
       receipt: `order_${orderId}`,
       notes: {
